@@ -14,6 +14,15 @@ http.interceptors.request.use((cfg) => {
 });
 
 export const apiError = (e, fallback = "Something went wrong. Please try again.") => {
+  const firebaseMessages = {
+    "auth/invalid-credential": "Email or password is incorrect.",
+    "auth/invalid-login-credentials": "Email or password is incorrect.",
+    "auth/email-already-in-use": "An account with this email already exists.",
+    "auth/weak-password": "Password must be at least 6 characters.",
+    "auth/too-many-requests": "Too many attempts. Please try again later.",
+    "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+  };
+  if (e?.code && firebaseMessages[e.code]) return firebaseMessages[e.code];
   const d = e?.response?.data?.detail;
   if (typeof d === "string") return d;
   if (Array.isArray(d)) return d.map((x) => x?.msg).filter(Boolean).join(" ") || fallback;

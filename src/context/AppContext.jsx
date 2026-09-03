@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { api, setToken, getToken, apiError } from "@/lib/api";
 import { flushOutbox, outboxCount, cacheGet, cacheSet } from "@/lib/db";
-import { firebaseSignOut } from "@/lib/firebase";
+import { firebaseSignOut, signInWithEmail, signUpWithEmail, auth, refreshClaims } from "@/lib/firebase";
+import { bootstrapAccount } from "@/lib/firebaseApi";
 import { toast } from "sonner";
 
 const AppCtx = createContext(null);
@@ -52,14 +53,17 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   const boot = useCallback(async () => {
-    if (!getToken()) { setReady(true); return; }
     try {
-      const data = await api.get("/auth/me");
-      setUser(data.user);
-      setShop(data.shop);
-      await loadShop();
+      if (auth?.currentUser) {
+        await afterAuth(auth.currentUser);
+      } else {
+        setToken("");
+      }
     } catch (e) {
-      if (e?.response?.status === 401) { setToken(""); setUser(null); }
+      console.log("[v0] Firebase boot failed", e?.message || e);
+      setToken("");
+      setUser(null);
+      setShop(null);
     } finally {
       setReady(true);
     }
@@ -97,42 +101,38 @@ export const AppProvider = ({ children }) => {
     };
   }, [sync]);
 
-  const afterAuth = async (data) => {
-    setToken(data.token);
-    setUser(data.user);
+  const afterAuth = async (firebaseUser, options = {}) => {
+    const token = await firebaseUser.getIdToken();
+    setToken(token);
+    const data = await bootstrapAccount(options);
+    setUser(data.user || { uid: firebaseUser.uid, email: firebaseUser.email, role: data.role || "Owner" });
     setShop(data.shop || null);
     await loadShop();
-  };
-
-  const login = async (email, password) => {
-    const data = await api.post("/auth/login", { email, password });
-    if (data.user?.platformRole === "superadmin") {
-      setToken(data.token);
-      setUser(data.user);
-      return { admin: true };
-    }
-    await afterAuth(data);
-    return { admin: false };
-  };
-
-  const signupShop = async (payload) => {
-    const data = await api.post("/auth/signup-shop", payload);
-    await afterAuth(data);
     return data;
   };
 
-  // idToken = real Firebase ID token from signInWithGoogle(). businessName is only
-  // needed the first time a brand-new Google account signs in (no shop yet) —
-  // the backend replies { needsShop: true } so the UI can ask for it and retry.
+  const login = async (email, password) => {
+    const firebaseUser = await signInWithEmail(email, password);
+    const data = await afterAuth(firebaseUser);
+    return { admin: data.user?.platformRole === "superadmin" || data.role === "superadmin" };
+  };
+
+  const signupShop = async (payload) => {
+    const firebaseUser = await signUpWithEmail(payload.email, payload.password);
+    return afterAuth(firebaseUser, {
+      businessName: payload.businessName,
+      businessType: payload.businessType,
+      device: "web",
+    });
+  };
+
   const loginWithGoogle = async (idToken, businessName = "", businessType = "General Retail") => {
-    const data = await api.post("/auth/google", { idToken, businessName, businessType });
-    if (data.needsShop) return data;
-    await afterAuth(data);
+    if (!auth?.currentUser) throw new Error("Google sign-in session expired. Please try again.");
+    const data = await afterAuth(auth.currentUser, { businessName, businessType, device: "web" });
     return data;
   };
 
   const logout = async () => {
-    try { await api.post("/auth/logout"); } catch {}
     await firebaseSignOut();
     setToken("");
     setUser(null);
