@@ -67,7 +67,7 @@ export const AppProvider = ({ children }) => {
     } finally {
       setReady(true);
     }
-  }, [loadShop]);
+  }, []);
 
   useEffect(() => { boot(); }, [boot]);
 
@@ -107,7 +107,10 @@ export const AppProvider = ({ children }) => {
     const data = await bootstrapAccount(options);
     setUser(data.user || { uid: firebaseUser.uid, email: firebaseUser.email, role: data.role || "Owner" });
     setShop(data.shop || null);
-    await loadShop();
+    // Firebase bootstrap returns the authoritative shop/settings/license data.
+    // Do not call the retired REST `/shop` endpoint here; the SPA fallback responds 405.
+    if (data.settings) setSettings({ ...data.shop, ...data.settings });
+    if (data.license) setLicense(data.license);
     return data;
   };
 

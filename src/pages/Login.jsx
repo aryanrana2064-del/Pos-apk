@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
-import { api, apiError } from "@/lib/api";
+import { apiError } from "@/lib/api";
 import { signInWithGoogle, firebaseEnabled } from "@/lib/firebase";
 import { Boxes, Loader2 } from "lucide-react";
 
@@ -57,8 +57,6 @@ export default function Login() {
       setGoogleBusy(false);
     }
   };
-
-  useEffect(() => { api.get("/templates").then((t) => t?.businessTypes && setTypes(t.businessTypes)).catch(() => {}); }, []);
 
   const submit = async (e) => {
     e.preventDefault();
