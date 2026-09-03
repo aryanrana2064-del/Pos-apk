@@ -3,6 +3,7 @@ import { api, setToken, getToken, apiError } from "@/lib/api";
 import { flushOutbox, outboxCount, cacheGet, cacheSet } from "@/lib/db";
 import { firebaseSignOut, signInWithEmail, signUpWithEmail, auth, refreshClaims } from "@/lib/firebase";
 import { bootstrapAccount } from "@/lib/firebaseApi";
+import { getFirestore, collection, query, where, limit as fbLimit, getDocs } from "firebase/firestore";
 import { toast } from "sonner";
 
 const AppCtx = createContext(null);
@@ -33,22 +34,33 @@ export const AppProvider = ({ children }) => {
 
   const loadShop = useCallback(async () => {
     try {
-      const data = await api.get("/shop");
-      setShop(data.shop);
-      setSettings({ ...data.shop, ...data.settings });
-      setLicense(data.license);
-      await cacheSet("shopMeta", { shop: data.shop, settings: { ...data.shop, ...data.settings } });
-    } catch {
+      if (!auth?.currentUser) throw new Error("Not signed in");
+      const db = getFirestore(auth.app);
+      const token = await auth.currentUser.getIdTokenResult();
+      const shopId = token.claims.shopId;
+      if (!shopId) throw new Error("Shop is not linked to this account");
+
+      const shopSnap = await getDocs(query(collection(db, "shops"), where("id", "==", shopId), fbLimit(1)));
+      const shopData = shopSnap.docs[0]?.data();
+      const settingsSnap = await getDocs(query(collection(db, "settings"), where("shopId", "==", shopId), fbLimit(1)));
+      const settingsData = settingsSnap.docs[0]?.data() || {};
+      const licenseSnap = await getDocs(query(collection(db, "licenses"), where("shopId", "==", shopId), fbLimit(1)));
+      const licenseData = licenseSnap.docs[0]?.data() || null;
+
+      setShop(shopData || null);
+      setSettings({ ...shopData, ...settingsData });
+      setLicense(licenseData);
+      await cacheSet("shopMeta", { shop: shopData, settings: { ...shopData, ...settingsData }, license: licenseData });
+    } catch (e) {
+      console.log("[v0] Firestore shop load failed", e?.message || e);
       const cached = await cacheGet("shopMeta");
-      if (cached) { setShop(cached.shop); setSettings(cached.settings); }
+      if (cached) { setShop(cached.shop); setSettings(cached.settings); setLicense(cached.license || null); }
     }
     try {
-      const t = await api.get("/templates");
-      setMeta(t);
-      await cacheSet("templates", t);
-    } catch {
       const cached = await cacheGet("templates");
       if (cached) setMeta(cached);
+    } catch (e) {
+      console.log("[v0] Template cache load failed", e?.message || e);
     }
   }, []);
 
